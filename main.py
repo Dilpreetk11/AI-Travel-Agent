@@ -6,6 +6,7 @@ import operator
 from typing import TypedDict, Annotated
 
 import psycopg
+import streamlit as st
 from psycopg.rows import dict_row
 from dotenv import load_dotenv
 
@@ -34,17 +35,32 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Explicitly load .env from that folder
 ENV_PATH = os.path.join(BASE_DIR, ".env")
-
 load_dotenv(ENV_PATH)
 
 
 # ============================================================
-# GET ENVIRONMENT VARIABLES
+# GET ENVIRONMENT VARIABLES / STREAMLIT SECRETS
 # ============================================================
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+def get_secret(key):
+    """
+    First read from environment variables (.env locally).
+    If not found, read from Streamlit Cloud Secrets.
+    """
+    value = os.getenv(key)
+
+    if value:
+        return value
+
+    try:
+        return st.secrets.get(key)
+    except Exception:
+        return None
+
+
+DATABASE_URL = get_secret("DATABASE_URL")
+GROQ_API_KEY = get_secret("GROQ_API_KEY")
+TAVILY_API_KEY = get_secret("TAVILY_API_KEY")
 
 
 # ============================================================
@@ -52,34 +68,27 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 # ============================================================
 
 print("Checking environment variables...")
-
-print(
-    "Groq API key loaded:",
-    bool(GROQ_API_KEY)
-)
-
-print(
-    "Tavily API key loaded:",
-    bool(TAVILY_API_KEY)
-)
-
-print(
-    "Database URL loaded:",
-    bool(DATABASE_URL)
-)
+print("Groq API key loaded:", bool(GROQ_API_KEY))
+print("Tavily API key loaded:", bool(TAVILY_API_KEY))
+print("Database URL loaded:", bool(DATABASE_URL))
 
 
 if not GROQ_API_KEY:
     raise ValueError(
-        "GROQ_API_KEY was not found. "
-        "Make sure your .env file is in the same folder as main.py."
+        "GROQ_API_KEY is missing. "
+        "Add it to your .env file or Streamlit Cloud Secrets."
     )
-
 
 if not DATABASE_URL:
     raise ValueError(
-        "DATABASE_URL was not found. "
-        "Make sure DATABASE_URL is present in your .env file."
+        "DATABASE_URL is missing. "
+        "Add it to your .env file or Streamlit Cloud Secrets."
+    )
+
+if not TAVILY_API_KEY:
+    raise ValueError(
+        "TAVILY_API_KEY is missing. "
+        "Add it to your .env file or Streamlit Cloud Secrets."
     )
 
 
@@ -111,7 +120,6 @@ class TravelState(TypedDict):
 # ============================================================
 
 def flight_agent(state: TravelState):
-
     query = state["user_query"]
 
     flight_data = search_flights(query)
@@ -132,7 +140,6 @@ def flight_agent(state: TravelState):
 # ============================================================
 
 def hotel_agent(state: TravelState):
-
     query = f"Best hotels for {state['user_query']}"
 
     hotel_results = tavily_search(query)
@@ -153,7 +160,6 @@ def hotel_agent(state: TravelState):
 # ============================================================
 
 def itinerary_agent(state: TravelState):
-
     prompt = f"""
 Create a travel itinerary.
 
@@ -192,7 +198,6 @@ Hotel Results:
 # ============================================================
 
 def final_agent(state: TravelState):
-
     final_prompt = f"""
 Generate a final travel response for the user.
 
@@ -230,7 +235,6 @@ Itinerary:
 # ============================================================
 
 graph = StateGraph(TravelState)
-
 
 graph.add_node(
     "flight_agent",
@@ -287,7 +291,7 @@ graph.add_edge(
 # POSTGRES CHECKPOINTER
 # ============================================================
 
-# autocommit=True is important because the LangGraph
+# autocommit=True is important because LangGraph
 # PostgreSQL migrations use CREATE INDEX CONCURRENTLY.
 
 _conn = psycopg.connect(
@@ -296,11 +300,7 @@ _conn = psycopg.connect(
     row_factory=dict_row
 )
 
-
-checkpointer = PostgresSaver(
-    _conn
-)
-
+checkpointer = PostgresSaver(_conn)
 
 # Create LangGraph checkpoint tables
 checkpointer.setup()
@@ -322,7 +322,7 @@ app = graph.compile(
 if __name__ == "__main__":
 
     print("\n===================================")
-    print("   AI TRAVEL AGENT")
+    print("          AI TRAVEL AGENT")
     print("===================================\n")
 
     user_input = input(
@@ -335,7 +335,6 @@ if __name__ == "__main__":
         }
     }
 
-
     result = app.invoke(
         {
             "messages": [
@@ -343,31 +342,21 @@ if __name__ == "__main__":
                     content=user_input
                 )
             ],
-
             "user_query": user_input,
-
             "flight_results": "",
-
             "hotel_results": "",
-
             "itinerary": "",
-
             "llm_calls": 0
         },
-
         config=config
     )
 
-
     print("\n===================================")
-    print("        FINAL RESPONSE")
+    print("          FINAL RESPONSE")
     print("===================================\n")
-
 
     # Print the final AI response
     for msg in reversed(result["messages"]):
-
         if isinstance(msg, AIMessage):
-
             print(msg.content)
-
+            break

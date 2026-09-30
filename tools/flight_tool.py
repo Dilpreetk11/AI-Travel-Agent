@@ -1,21 +1,53 @@
-# Example free API usage
-# - AviationStack
-
-
-# create api key
-# https://aviationstack.com/ 
-# pip install requests
-
-
-    
-import os
+# import os
 import requests
+import streamlit as st
+
 from dotenv import load_dotenv
 
-load_dotenv()
 
+# ============================================================
+# LOAD .ENV
+# ============================================================
+
+BASE_DIR = os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))
+)
+
+ENV_PATH = os.path.join(BASE_DIR, ".env")
+
+load_dotenv(ENV_PATH)
+
+
+# ============================================================
+# GET AVIATIONSTACK API KEY
+# ============================================================
+
+# First try local .env
 API_KEY = os.getenv("AVIATIONSTACK_API_KEY")
 
+
+# If not found, try Streamlit Cloud Secrets
+if not API_KEY:
+    try:
+        API_KEY = st.secrets.get("AVIATIONSTACK_API_KEY")
+    except Exception:
+        API_KEY = None
+
+
+# ============================================================
+# CHECK API KEY
+# ============================================================
+
+if not API_KEY:
+    raise ValueError(
+        "AVIATIONSTACK_API_KEY is missing. "
+        "Add it to your .env file or Streamlit Cloud Secrets."
+    )
+
+
+# ============================================================
+# SEARCH FLIGHTS
+# ============================================================
 
 def search_flights(query):
 
@@ -26,35 +58,70 @@ def search_flights(query):
         "limit": 5
     }
 
-    response = requests.get(url, params=params)
+    try:
 
-    data = response.json()
+        response = requests.get(
+            url,
+            params=params,
+            timeout=20
+        )
 
-    flights = []
+        response.raise_for_status()
 
-    if "data" in data:
+        data = response.json()
 
-        for flight in data["data"][:5]:
+        flights = []
 
-            airline = flight.get("airline", {}).get("name", "Unknown")
+        if "data" in data:
 
-            departure = flight.get(
-                "departure", {}
-            ).get("airport", "Unknown")
+            for flight in data["data"][:5]:
 
-            arrival = flight.get(
-                "arrival", {}
-            ).get("airport", "Unknown")
+                airline = (
+                    flight
+                    .get("airline", {})
+                    .get("name", "Unknown")
+                )
 
-            status = flight.get("flight_status", "Unknown")
+                departure = (
+                    flight
+                    .get("departure", {})
+                    .get("airport", "Unknown")
+                )
 
-            flights.append(
-                f"""
+                arrival = (
+                    flight
+                    .get("arrival", {})
+                    .get("airport", "Unknown")
+                )
+
+                status = flight.get(
+                    "flight_status",
+                    "Unknown"
+                )
+
+                flights.append(
+                    f"""
 Airline: {airline}
+
 Departure: {departure}
+
 Arrival: {arrival}
+
 Status: {status}
 """
-            )
+                )
 
-    return "\n".join(flights)
+        if not flights:
+            return "No flight data found."
+
+        return "\n".join(flights)
+
+    except Exception as e:
+
+        print(
+            f"Flight search failed: {e}"
+        )
+
+        return (
+            "Flight search is temporarily unavailable."
+        )
