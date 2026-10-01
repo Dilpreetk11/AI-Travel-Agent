@@ -2,12 +2,14 @@
 # main.py
 
 import os
+import sys
 import operator
 from typing import TypedDict, Annotated
 
 import psycopg
 import streamlit as st
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool   # NEW
 from dotenv import load_dotenv
 
 from langgraph.graph import StateGraph, START, END
@@ -58,6 +60,10 @@ def get_secret(key):
 DATABASE_URL = get_secret("DATABASE_URL")
 GROQ_API_KEY = get_secret("GROQ_API_KEY")
 TAVILY_API_KEY = get_secret("TAVILY_API_KEY")
+
+# Strip stray spaces/quotes that often sneak into secrets
+if DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.strip().strip('"').strip("'")
 
 if DATABASE_URL:
     print(
@@ -297,35 +303,39 @@ graph.add_edge(
 
 # autocommit=True is important because LangGraph
 # PostgreSQL migrations use CREATE INDEX CONCURRENTLY.
-
-# ============================================================
-# POSTGRES CHECKPOINTER
-# ============================================================
-# ============================================================
-# POSTGRES CHECKPOINTER
-# ============================================================
+#
+# FIX: a connection pool replaces the single psycopg.connect()
+# so dead/idle connections are replaced automatically, and
+# prepare_threshold=0 makes it work with Supabase's pooler
+# (pgbouncer). The real error is now printed to the logs.
 
 try:
-    _conn = psycopg.connect(
-        DATABASE_URL,
-        autocommit=True,
-        row_factory=dict_row
+    pool = ConnectionPool(
+        conninfo=DATABASE_URL,
+        max_size=5,
+        kwargs={
+            "autocommit": True,
+            "row_factory": dict_row,
+            "prepare_threshold": 0,
+            "connect_timeout": 10,
+        },
+        check=ConnectionPool.check_connection,
+        open=True,
     )
+    pool.wait(timeout=15)  # fail fast so the real error shows up
 
-    checkpointer = PostgresSaver(_conn)
+    checkpointer = PostgresSaver(pool)
 
     # Create LangGraph checkpoint tables
     checkpointer.setup()
 
 except Exception as e:
+    # Full, unredacted error goes to Manage app > logs
+    print(f"POSTGRES FAILED: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     raise RuntimeError(
-        f"PostgreSQL connection failed. "
-        f"Check your DATABASE_URL in Streamlit Secrets. "
-        f"Original error: {type(e).__name__}: {e}"
-    )
-
-# Create LangGraph checkpoint tables
-checkpointer.setup()
+        "PostgreSQL connection failed. Check DATABASE_URL in Streamlit "
+        "Secrets and see the app logs for the original error."
+    ) from e
 
 
 # ============================================================
