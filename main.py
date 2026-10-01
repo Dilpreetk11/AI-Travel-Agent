@@ -44,24 +44,28 @@ load_dotenv(ENV_PATH)
 
 def get_secret(key):
     """
-    First read from environment variables (.env locally).
-    If not found, read from Streamlit Cloud Secrets.
+    Streamlit Cloud Secrets first.
+    Local .env second.
     """
-    value = os.getenv(key)
-
-    if value:
-        return value
-
     try:
-        return st.secrets.get(key)
+        value = st.secrets[key]
+        print(f"Loaded {key} from Streamlit Secrets")
+        return value
     except Exception:
-        return None
+        return os.getenv(key)
 
 
 DATABASE_URL = get_secret("DATABASE_URL")
 GROQ_API_KEY = get_secret("GROQ_API_KEY")
 TAVILY_API_KEY = get_secret("TAVILY_API_KEY")
 
+if DATABASE_URL:
+    print(
+        "DATABASE HOST:",
+        DATABASE_URL.split("@")[-1].split("/")[0]
+    )
+else:
+    print("DATABASE URL NOT FOUND")
 
 # ============================================================
 # CHECK API KEYS
