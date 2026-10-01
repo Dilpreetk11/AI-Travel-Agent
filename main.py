@@ -294,13 +294,31 @@ graph.add_edge(
 # autocommit=True is important because LangGraph
 # PostgreSQL migrations use CREATE INDEX CONCURRENTLY.
 
-_conn = psycopg.connect(
-    DATABASE_URL,
-    autocommit=True,
-    row_factory=dict_row
-)
+# ============================================================
+# POSTGRES CHECKPOINTER
+# ============================================================
+# ============================================================
+# POSTGRES CHECKPOINTER
+# ============================================================
 
-checkpointer = PostgresSaver(_conn)
+try:
+    _conn = psycopg.connect(
+        DATABASE_URL,
+        autocommit=True,
+        row_factory=dict_row
+    )
+
+    checkpointer = PostgresSaver(_conn)
+
+    # Create LangGraph checkpoint tables
+    checkpointer.setup()
+
+except Exception as e:
+    raise RuntimeError(
+        f"PostgreSQL connection failed. "
+        f"Check your DATABASE_URL in Streamlit Secrets. "
+        f"Original error: {type(e).__name__}: {e}"
+    )
 
 # Create LangGraph checkpoint tables
 checkpointer.setup()
